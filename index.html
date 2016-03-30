@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="UTF-8">
+    <title>Cachex by zackehh</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" type="text/css" href="stylesheets/normalize.css" media="screen">
+    <link href='https://fonts.googleapis.com/css?family=Open+Sans:400,700' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" type="text/css" href="stylesheets/stylesheet.css" media="screen">
+    <link rel="stylesheet" type="text/css" href="stylesheets/github-light.css" media="screen">
+  </head>
+  <body>
+    <section class="page-header">
+      <h1 class="project-name">Cachex</h1>
+      <h2 class="project-tagline">A powerful yet simple caching library for Elixir</h2>
+      <a href="https://github.com/zackehh/cachex" class="btn">View on GitHub</a>
+      <a href="https://github.com/zackehh/cachex/zipball/master" class="btn">Download .zip</a>
+      <a href="https://github.com/zackehh/cachex/tarball/master" class="btn">Download .tar.gz</a>
+    </section>
+
+    <section class="main-content">
+      <h1>
+<a id="cachex" class="anchor" href="#cachex" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Cachex</h1>
+
+<p><a href="https://travis-ci.org/zackehh/cachex"><img src="https://img.shields.io/travis/zackehh/cachex.svg" alt="Build Status"></a> <a href="https://coveralls.io/github/zackehh/cachex"><img src="https://img.shields.io/coveralls/zackehh/cachex.svg" alt="Coverage Status"></a> <a href="https://hex.pm/packages/cachex"><img src="https://img.shields.io/hexpm/v/cachex.svg" alt="Hex.pm Version"></a> <a href="https://hexdocs.pm/cachex/"><img src="https://img.shields.io/badge/docs-latest-yellowgreen.svg" alt="Documentation"></a></p>
+
+<p>Cachex is an extremely fast in-memory key/value store with support for many useful features:</p>
+
+<ul>
+<li>Time-based key expirations</li>
+<li>Pre/post execution hooks</li>
+<li>Statistics gathering</li>
+<li>Multi-layered caching/key fallbacks</li>
+<li>Distribution to remote nodes</li>
+<li>Transactions and row locking</li>
+<li>Asynchronous write operations</li>
+</ul>
+
+<p>All of these features are optional and are off by default so you can pick and choose those you wish to enable.</p>
+
+<h2>
+<a id="table-of-contents" class="anchor" href="#table-of-contents" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Table of Contents</h2>
+
+<ul>
+<li><a href="#installation">Installation</a></li>
+<li><a href="#usage">Usage</a></li>
+<li><a href="#cache-options">Cache Options</a></li>
+<li><a href="#multi-layered-caches">Multi-Layered Caches</a></li>
+<li>
+<a href="#execution-hooks">Execution Hooks</a>
+
+<ul>
+<li><a href="#definition">Definition</a></li>
+<li><a href="#registration">Registration</a></li>
+<li><a href="#performance">Performance</a></li>
+</ul>
+</li>
+<li>
+<a href="#ttl-implementation">TTL Implementation</a>
+
+<ul>
+<li><a href="#on-demand-expiration">On Demand Expiration</a></li>
+<li><a href="#janitors">Janitors</a></li>
+<li><a href="#ttl-distribution">TTL Distribution</a></li>
+</ul>
+</li>
+<li><a href="#interface">Interface</a></li>
+<li><a href="#contributions">Contributions</a></li>
+</ul>
+
+<h2>
+<a id="installation" class="anchor" href="#installation" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Installation</h2>
+
+<p>As of v0.8.0, Cachex is available on <a href="https://hex.pm/">Hex</a>. You can install the package via:</p>
+
+<ol>
+<li>
+<p>Add cachex to your list of dependencies in <code>mix.exs</code>:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-k">def</span> <span class="pl-en">deps</span> <span class="pl-k">do</span>
+  [{<span class="pl-c1">:cachex</span>, <span class="pl-s"><span class="pl-pds">"</span>~&gt; 0.8.1<span class="pl-pds">"</span></span>}]
+<span class="pl-k">end</span></pre></div>
+</li>
+<li>
+<p>Ensure cachex is started before your application:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-k">def</span> <span class="pl-en">application</span> <span class="pl-k">do</span>
+  [<span class="pl-c1">applications:</span> [<span class="pl-c1">:cachex</span>]]
+<span class="pl-k">end</span></pre></div>
+</li>
+</ol>
+
+<h2>
+<a id="usage" class="anchor" href="#usage" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Usage</h2>
+
+<p>The typical use of Cachex is to set up using a Supervisor, so that it can be handled automatically:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-c1">Supervisor</span>.start_link(
+  [
+    worker(<span class="pl-c1">Cachex</span>, [[ <span class="pl-c1">name:</span> <span class="pl-c1">:my_cache</span> ], []])
+  ]
+)</pre></div>
+
+<p>If you wish to start it manually (for example, in <code>iex</code>), you can just use <code>Cachex.start_link/2</code>:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-c1">Cachex</span>.start_link([ <span class="pl-c1">name:</span> <span class="pl-c1">:my_cache</span> ], [])</pre></div>
+
+<p>Although this is possible and is functionally the same internally, it's probably better to set up the supervision tree for fault-tolerance. As shown in the above examples, the only <strong>required</strong> option is the <code>name</code> option. This is the name of your cache and is how you will typically refer to the cache in the <code>Cachex</code> module.</p>
+
+<h2>
+<a id="cache-options" class="anchor" href="#cache-options" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Cache Options</h2>
+
+<p>Caches can accept a list of options during initialization, which determine various behaviour inside your cache. These options are defined on a per-cache basis and cannot be changed after being set.</p>
+
+<table>
+<thead>
+<tr>
+<th align="center">Options</th>
+<th align="center">Values</th>
+<th align="center">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center">ets_opts</td>
+<td align="center">list of options</td>
+<td align="center">A list of options to give to the ETS table.</td>
+</tr>
+<tr>
+<td align="center">default_fallback</td>
+<td align="center">function</td>
+<td align="center">A function accepting a key which is used for multi-layered caching.</td>
+</tr>
+<tr>
+<td align="center">default_ttl</td>
+<td align="center">milliseconds</td>
+<td align="center">A default expiration time for a key when being placed inside the cache.</td>
+</tr>
+<tr>
+<td align="center">fallback_args</td>
+<td align="center">list of arguments</td>
+<td align="center">A list of arguments to pass alongside the key to a fallback function.</td>
+</tr>
+<tr>
+<td align="center">hooks</td>
+<td align="center">list of Hooks</td>
+<td align="center">A list of execution hooks (see below) to listen on cache actions.</td>
+</tr>
+<tr>
+<td align="center">nodes</td>
+<td align="center">list of nodes</td>
+<td align="center">A list of remote nodes to connect to and replicate against.</td>
+</tr>
+<tr>
+<td align="center">record_stats</td>
+<td align="center">
+<code>true</code> or <code>false</code>
+</td>
+<td align="center">Whether to track statistics for this cache or not.</td>
+</tr>
+<tr>
+<td align="center">remote</td>
+<td align="center">
+<code>true</code> or <code>false</code>
+</td>
+<td align="center">Whether to use replication with writes or not.</td>
+</tr>
+<tr>
+<td align="center">transactional</td>
+<td align="center">
+<code>true</code> or <code>false</code>
+</td>
+<td align="center">Whether to enclose all cache actions in transactions or not.</td>
+</tr>
+<tr>
+<td align="center">ttl_interval</td>
+<td align="center">milliseconds</td>
+<td align="center">The frequency the Janitor process runs at (see below).</td>
+</tr>
+</tbody>
+</table>
+
+<p>For more information and examples, please see the official documentation on <a href="https://hexdocs.pm/cachex/">Hex</a>.</p>
+
+<h2>
+<a id="multi-layered-caches" class="anchor" href="#multi-layered-caches" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Multi-Layered Caches</h2>
+
+<p>A very common use case (and one of the reasons I built Cachex) is the desire to have Multi-Layered Caches. Multi-layering is the idea of a backing cache (i.e. something remote) which populates your local caches on misses. A typical pattern is using <a href="http://redis.io">Redis</a> as a remote data store and replicating it locally in-memory for faster access.</p>
+
+<p>Let's look at an example; assume you need to read information from a database to service a public API. The issue is that the query is expensive and so you want to cache it locally for 5 minutes to avoid overloading your database. To do this with Cachex, you would simply specify a TTL of 5 minutes on your cache, and use a fallback to read from your database.</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-c"># initialize our database client</span>
+{ <span class="pl-c1">:ok</span>, db } <span class="pl-k">=</span> initialize_database_client()
+
+<span class="pl-c"># initialize the cache instance</span>
+{ <span class="pl-c1">:ok</span>, pid } <span class="pl-k">=</span> <span class="pl-c1">Cachex</span>.start_link([ <span class="pl-c1">name:</span> <span class="pl-c1">:info_cache</span>, <span class="pl-c1">default_ttl:</span> <span class="pl-c1">:timer</span>.minutes(<span class="pl-c1">5</span>), <span class="pl-c1">fallback_args:</span> [db] ])
+
+<span class="pl-c"># request our information on our "packages" API</span>
+{ <span class="pl-c1">:ok</span>, information } <span class="pl-k">=</span> <span class="pl-c1">Cachex</span>.get(<span class="pl-c1">:info_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>/api/v1/packages<span class="pl-pds">"</span></span>, <span class="pl-c1">fallback:</span> <span class="pl-k">fn</span>(<span class="pl-smi">key</span>, <span class="pl-smi">db</span>) <span class="pl-k">-</span><span class="pl-k">&gt;</span>
+  <span class="pl-c1">Database</span>.query_all_packages(db)
+<span class="pl-k">end</span>)</pre></div>
+
+<p>That's all there is to it. The above is a multi-layered cache which only hits the database <strong>at most</strong> every 5 minutes, and hits local memory in the meantime (retrieving the exact same data as was returned from your database). This allows you to easily lower the pressure on your backing systems - the value returned by your fallback is set in the cache against the key.</p>
+
+<p>Note that the above use defines the fallback implementation inside the <code>Cachex.get/3</code> command itself, but for a more general fallback you can assign it in the Cachex options. This is perhaps more fitting for something like Redis, where you're simply replicating the remote information locally:</p>
+
+<h2>
+<a id="execution-hooks" class="anchor" href="#execution-hooks" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Execution Hooks</h2>
+
+<p>Cachex provides an easy way to plug into cache actions, by way of the hook system. This system allows the user to specify pre/post execution hooks which are notified when actions are taken.</p>
+
+<p>These hooks accept messages in the form of tuples which represent the action being taken. These tuples basically represent <code>[:action|action_args]</code>, where <code>:action</code> represents the name of the function being executed inside Cachex, and <code>action_args</code> represent the arguments provided to the function.</p>
+
+<p>It's pretty straightforward, but in the interest of completeness, here is a quick example of how a Cachex command translates to the notification format:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-c1">Cachex</span>.get(<span class="pl-c1">:my_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>key<span class="pl-pds">"</span></span>) <span class="pl-k">==</span> { <span class="pl-c1">:get</span>, <span class="pl-c1">:my_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>key<span class="pl-pds">"</span></span> }</pre></div>
+
+<p>Cachex uses the typical <code>GenServer</code> pattern (it's actually a <code>GenEvent</code> implementation under the hood), and as such you get most of the typical interfaces. There are a couple of differences, but they're detailed below.</p>
+
+<h4>
+<a id="definition" class="anchor" href="#definition" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Definition</h4>
+
+<p>Hooks are quite simply a small abstraction above the existing <code>GenEvent</code> which ships with Elixir. Cachex tweaks a couple of minor things related to synchronous execution and argument format, but nothing too special. Below is an example of a very basic hook implementation:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-k">defmodule</span> <span class="pl-en">MyProject</span>.<span class="pl-en">MyHook</span> <span class="pl-k">do</span>
+  <span class="pl-k">use</span> <span class="pl-c1">Cachex</span>.<span class="pl-c1">Hook</span>
+
+  <span class="pl-c">@moduledoc """</span>
+<span class="pl-c">  A very small example hook which simply logs all actions to stdout and keeps</span>
+<span class="pl-c">  track of the last executed action.</span>
+<span class="pl-c">  """</span>
+
+  <span class="pl-c">@doc """</span>
+<span class="pl-c">  The arguments provided to this function are those defined in the `args` key of</span>
+<span class="pl-c">  your hook registration. This is the same as any old GenServer init phase. The</span>
+<span class="pl-c">  value you return in the tuple will be the state of your hook.</span>
+<span class="pl-c">  """</span>
+  <span class="pl-k">def</span> <span class="pl-en">init</span>(<span class="pl-smi">options</span> <span class="pl-k">\\</span> []) <span class="pl-k">do</span>
+    { <span class="pl-c1">:ok</span>, <span class="pl-c1">nil</span> }
+  <span class="pl-k">end</span>
+
+  <span class="pl-c">@doc """</span>
+<span class="pl-c">  This is the actual handler of your hook, receiving a message and the state. This</span>
+<span class="pl-c">  behaves in the same way as `GenEvent.handle_event/2` in that you can modify the</span>
+<span class="pl-c">  state and return it at the end of your function.</span>
+<span class="pl-c"></span>
+<span class="pl-c">  Messages take the form `{ :action, args... }`, so you can quite easily pattern</span>
+<span class="pl-c">  match and take different action based on different events (or ignore certain</span>
+<span class="pl-c">  events entirely).</span>
+<span class="pl-c">  """</span>
+  <span class="pl-k">def</span> <span class="pl-en">handle_notify</span>(<span class="pl-smi">msg</span>, <span class="pl-smi">state</span>) <span class="pl-k">do</span>
+    <span class="pl-c1">IO</span>.puts(<span class="pl-s"><span class="pl-pds">"</span>Message: <span class="pl-s1"><span class="pl-pse">#{</span>msg<span class="pl-pse">}</span></span><span class="pl-pds">"</span></span>)
+    { <span class="pl-c1">:ok</span>, msg }
+  <span class="pl-k">end</span>
+
+  <span class="pl-c">@doc """</span>
+<span class="pl-c">  This is functionally the same as the above `handle_notify/2` definition except</span>
+<span class="pl-c">  that it receives the results of the action taken. This will only ever be called</span>
+<span class="pl-c">  if you set `results` to `true` in your hook registration.</span>
+<span class="pl-c"></span>
+<span class="pl-c">  Message formats are as above, and results are of the same format as if they had</span>
+<span class="pl-c">  been returned in the main worker thread.</span>
+<span class="pl-c">  """</span>
+  <span class="pl-k">def</span> <span class="pl-en">handle_notify</span>(<span class="pl-smi">msg</span>, <span class="pl-smi">results</span>, <span class="pl-smi">state</span>) <span class="pl-k">do</span>
+    <span class="pl-c1">IO</span>.puts(<span class="pl-s"><span class="pl-pds">"</span>Message: <span class="pl-s1"><span class="pl-pse">#{</span>msg<span class="pl-pse">}</span></span><span class="pl-pds">"</span></span>)
+    <span class="pl-c1">IO</span>.puts(<span class="pl-s"><span class="pl-pds">"</span>Results: <span class="pl-s1"><span class="pl-pse">#{</span>results<span class="pl-pse">}</span></span><span class="pl-pds">"</span></span>)
+    { <span class="pl-c1">:ok</span>, msg }
+  <span class="pl-k">end</span>
+
+  <span class="pl-c">@doc """</span>
+<span class="pl-c">  Provides a way to retrieve the last action taken inside the cache.</span>
+<span class="pl-c">  """</span>
+  <span class="pl-k">def</span> <span class="pl-en">handle_call</span>(<span class="pl-c1">:last_action</span>, <span class="pl-smi">state</span>) <span class="pl-k">do</span>
+    { <span class="pl-c1">:ok</span>, state, state }
+  <span class="pl-k">end</span>
+
+<span class="pl-k">end</span></pre></div>
+
+<p>You can override any of the typical callback functions <em>except</em> for the <code>handle_event/2</code> callback inside <code>GenEvent</code> which is used by Cachex. This is because Cachex hijacks <code>handle_event/2</code> and adds some bindings based around synchronous execution, so for safety it's easier to keep this away from the user. Cachex exposes the <code>handle_notify/2</code> and <code>handle_notify/3</code> callbacks in order to replace this behaviour by operating in the same way as <code>handle_event/2</code>.</p>
+
+<h4>
+<a id="registration" class="anchor" href="#registration" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Registration</h4>
+
+<p>To register hooks with Cachex, they must be passed in when setting up a cache in the call to <code>Cachex.start_link/2</code> (or in your Supervisor). This looks something like the following:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-k">defmodule</span> <span class="pl-en">MyModule</span> <span class="pl-k">do</span>
+
+  <span class="pl-smi">@on_load</span> <span class="pl-c1">:init_cache</span>
+
+  <span class="pl-k">def</span> <span class="pl-en">init_cache</span> <span class="pl-k">do</span>
+    my_hooks <span class="pl-k">=</span> [%<span class="pl-c1">Cachex</span>.<span class="pl-c1">Hook</span>{
+      <span class="pl-c1">module:</span> <span class="pl-c1">MyProject</span>.<span class="pl-c1">MyHook</span>,
+      <span class="pl-c1">server_args:</span> [ <span class="pl-c1">name:</span> <span class="pl-c1">:my_project_hook</span> ]
+    }]
+    { <span class="pl-c1">:ok</span>, pid } <span class="pl-k">=</span> <span class="pl-c1">Cachex</span>.start_link([ <span class="pl-c1">name:</span> <span class="pl-c1">:my_cache</span>, <span class="pl-c1">hooks:</span> my_hooks ])
+    <span class="pl-c1">:ok</span>
+  <span class="pl-k">end</span>
+
+<span class="pl-k">end</span></pre></div>
+
+<p>A hook is an instance of the <code>%Cachex.Hook{}</code> struct. These structs store various options associated with hooks alongside a listener module and look similar to that shown below (the values used below are the defaults):</p>
+
+<div class="highlight highlight-source-elixir"><pre>%<span class="pl-c1">Cachex</span>.<span class="pl-c1">Hook</span>{
+  <span class="pl-c1">args:</span> [],
+  <span class="pl-c1">async:</span> <span class="pl-c1">true</span>,
+  <span class="pl-c1">max_timeout:</span> <span class="pl-c1">5</span>,
+  <span class="pl-c1">module:</span> <span class="pl-c1">nil</span>,
+  <span class="pl-c1">results:</span> <span class="pl-c1">false</span>,
+  <span class="pl-c1">server_args:</span> [],
+  <span class="pl-c1">type:</span> <span class="pl-c1">:pre</span>
+}</pre></div>
+
+<p>These fields translate to the following:</p>
+
+<table>
+<thead>
+<tr>
+<th align="center">Option</th>
+<th align="center">Values</th>
+<th align="center">Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center">args</td>
+<td align="center">any</td>
+<td align="center">Arguments to pass to the initialization of your hook.</td>
+</tr>
+<tr>
+<td align="center">async</td>
+<td align="center">
+<code>true</code> or <code>false</code>
+</td>
+<td align="center">Whether or not this hook should execute asynchronously.</td>
+</tr>
+<tr>
+<td align="center">max_timeout</td>
+<td align="center">no. of milliseconds</td>
+<td align="center">A maximum time to wait for your synchronous hook to complete.</td>
+</tr>
+<tr>
+<td align="center">module</td>
+<td align="center">a module definition</td>
+<td align="center">A module containing your which implements the Hook interface.</td>
+</tr>
+<tr>
+<td align="center">results</td>
+<td align="center">
+<code>true</code> or <code>false</code>
+</td>
+<td align="center">Whether the results should be included in notifications.</td>
+</tr>
+<tr>
+<td align="center">server_args</td>
+<td align="center">any</td>
+<td align="center">Arguments to pass to the GenEvent server.</td>
+</tr>
+<tr>
+<td align="center">type</td>
+<td align="center">
+<code>:pre</code> or <code>:post</code>
+</td>
+<td align="center">Whether this hook should execute before or after the action.</td>
+</tr>
+</tbody>
+</table>
+
+<p><strong>Notes</strong></p>
+
+<ul>
+<li>
+<code>max_timeout</code> has no effect if the hook is not being executed in a synchronous form.</li>
+<li>
+<code>module</code> is the only required argument, as there's no logical default to set if not provided.</li>
+<li>
+<code>results</code> has no effect on <code>:pre</code> hooks (as naturally results can only be forwarded after the action has taken place. Do not forget that this option has an effect on which callback is called (either <code>/2</code> or <code>/3</code>).</li>
+</ul>
+
+<h4>
+<a id="performance" class="anchor" href="#performance" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Performance</h4>
+
+<p>Due to the way hooks are implemented and notified internally, there is only a very minimal overhead to defining a hook (usually around a microsecond per definition). Naturally if you define a synchronous hook then the performance depends entirely on the actions taken inside the hook (up until the timeout).</p>
+
+<p>Hooks are always notified sequentially as spawning another process for each has far too much overhead, and so you should keep this in mind when using synchronous hooks as 3 hooks which all take a second to execute will cause the Cachex action to take at least 3 seconds before completing.</p>
+
+<h2>
+<a id="ttl-implementation" class="anchor" href="#ttl-implementation" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>TTL Implementation</h2>
+
+<p>Cachex implements a few different ways of working with key expiration, namely the background TTL loop and on-demand key expiration. Separately these two techniques aren't enough to provide an efficient system as your keyspace would either grow too large due to keys not being accessed and purged on access, or you would be able to retrieve values which should have expired. Cachex opts for a combination of both in order to ensure consistency whilst also reducing pressure on things like table scans.</p>
+
+<h4>
+<a id="on-demand-expiration" class="anchor" href="#on-demand-expiration" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>On Demand Expiration</h4>
+
+<p>Keys have an internal touch time and TTL associated with them, and these values do not change unless triggered explicitly by a Cachex call. This means that these values come back when we access a key, and allows us to very easily check if the key should have expired before returning it to the user. If this is the case, we actually fire off a deletion of the key before returning the <code>nil</code> value to the user.</p>
+
+<p>This means that at any point, if you have the TTL worker disabled, you can realistically never retrieve an expired key. This provides the ability to run the TTL worker less frequently, instead of having to have a tight loop in order to make sure that values can't be stale.</p>
+
+<p>Of course, if you have the TTL worker disabled you need to be careful of a growing cache size due to keys being added and then never being accessed again. This is fine if you have a very restrictive keyset, but for
+arbitrary keys this is probably not what you want.</p>
+
+<p>This type of expiration is always enabled and cannot be disabled. Due to the extremely minimal overhead, it doesn't really make sense to make this optional.</p>
+
+<h4>
+<a id="janitors" class="anchor" href="#janitors" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Janitors</h4>
+
+<p>Cachex also enables a background process (nicknamed the <code>Janitor</code>) which will purge the internal table every so often. The Janitor operates using <strong>full-table scans</strong> and so you should be relatively careful about how often you run it. The interval that this process runs can be controlled, and Janitors exist on a per-cache basis (i.e. each cache has its own Janitor).</p>
+
+<p>The Janitor is pretty well optimized; it can check and purge 500,000 expired keys in around a second (where the removal takes the most time, the check is very fast). As such, you're probably fine running it however often you wish but please keep in mind that running less frequently means you're not releasing the memory of expired keys. A typical use case is probably to run the Janitor every few seconds, and this is used as a default in a couple of places.</p>
+
+<p>There are several rules to be aware of when setting up the interval:</p>
+
+<ul>
+<li>If you have <code>default_ttl</code> set in the cache options, and you have not set <code>ttl_interval</code>, the Janitor will default to running every 3 seconds. This is to avoid people forgetting to set it or simply being unaware that it's not running by default.</li>
+<li>If you set <code>ttl_interval</code> to either <code>false</code> or <code>-1</code>, it is disabled entirely - even if you have a <code>default_ttl</code> set. This means you will be solely reliant on the on-demand expiration policy.</li>
+<li>If you set <code>ttl_interval</code> to <code>true</code>, it behaves the same way as if you had set a <code>default_ttl</code>; it will set the Janitor to run every 3 seconds.</li>
+<li>If you set <code>ttl_interval</code> to any numeric value above <code>0</code>, it will run on this schedule (this value is in milliseconds).</li>
+</ul>
+
+<p>It should be noted that this is a rolling value which is set <strong>on completion</strong> of a run. This means that if you schedule the Janitor to run every 1ms, it will be 1ms after a successful run, rather than starting every 1ms. This may become configurable in the future if there's demand for it, but for now rolling seems to make the most sense.</p>
+
+<h4>
+<a id="ttl-distribution" class="anchor" href="#ttl-distribution" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>TTL Distribution</h4>
+
+<p>The combination of Janitors and ODE means that distributed TTL becomes way easier because you <em>don't</em> have to replicate the purges to the other servers. The Janitors only ever run against the local machine, because Janitors naturally live on all machines.</p>
+
+<p>This has the benefit of all machines cleaning up their local environment (assuming they all use the same schedules, which will always be the case in practice). Even though these schedules can get out of sync, if you access a key which should have expired, it'll then be removed due to ODE. This means that it's not possible to retrieve a key which has expired on one node and not another. This is a small example of eventual consistency and in theory (and practice) should be safe enough.</p>
+
+<p>During tests, the replication of a TTL purge during a transaction took an <em>extremely</em> long time. The same purge mentioned above (of 500,000 keys) took at least 6 seconds when done in a potentially unsafe way. When carried out in a totally transactional way it took upwards of 20 seconds. Clearly, this is definitely not good enough for potentially high throughput systems, and as such opting for each node cleaning only itself up was decided on.</p>
+
+<h2>
+<a id="interface" class="anchor" href="#interface" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Interface</h2>
+
+<p>The Cachex interface should/will be maintained such that it follows this pattern:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-c1">Cachex</span>.action(<span class="pl-c1">:cache_ref</span>, _required_args, _options <span class="pl-k">\\</span> [])</pre></div>
+
+<p>Every action has a certain number of required arguments (can be <code>0</code>), and accepts a keyword list of options. As an example, here's how a <code>set</code> action could look:</p>
+
+<div class="highlight highlight-source-elixir"><pre><span class="pl-c1">Cachex</span>.set(<span class="pl-c1">:my_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>my_key<span class="pl-pds">"</span></span>, <span class="pl-s"><span class="pl-pds">"</span>my_value<span class="pl-pds">"</span></span>, [ <span class="pl-c1">ttl:</span> <span class="pl-c1">:timer</span>.seconds(<span class="pl-c1">5</span>) ])</pre></div>
+
+<p>All actions should return a result in the format of <code>{ status, result }</code> where <code>status</code> is <em>usually</em> <code>:ok</code> or <code>:error</code>, however this is not required (for example, <code>Cachex.get/3</code> sometimes returns <code>{ :loaded, result }</code>). The second item in the tuple can be of any type and structure, and depends on the action being carried out.</p>
+
+<p>All Cachex actions have an automatically generated unsafe equivalent, which unwraps these result tuples. This unwrapping assumes that <code>:error</code> status means that the result should be thrown, and that any other status should have the result returned alone.</p>
+
+<p>Below is an example of this:</p>
+
+<div class="highlight highlight-source-elixir"><pre>iex(<span class="pl-c1">1</span>)<span class="pl-k">&gt;</span> <span class="pl-c1">Cachex</span>.get(<span class="pl-c1">:my_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>key<span class="pl-pds">"</span></span>)
+{<span class="pl-c1">:ok</span>, <span class="pl-c1">nil</span>}
+iex(<span class="pl-c1">2</span>)<span class="pl-k">&gt;</span> <span class="pl-c1">Cachex</span>.get!(<span class="pl-c1">:my_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>key<span class="pl-pds">"</span></span>)
+<span class="pl-c1">nil</span>
+iex(<span class="pl-c1">3</span>)<span class="pl-k">&gt;</span> <span class="pl-c1">Cachex</span>.get(<span class="pl-c1">:missing_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>key<span class="pl-pds">"</span></span>)
+{<span class="pl-c1">:error</span>, <span class="pl-s"><span class="pl-pds">"</span>Invalid cache name provided, got: :missing_cache<span class="pl-pds">"</span></span>}
+iex(<span class="pl-c1">4</span>)<span class="pl-k">&gt;</span> <span class="pl-c1">Cachex</span>.get!(<span class="pl-c1">:missing_cache</span>, <span class="pl-s"><span class="pl-pds">"</span>key<span class="pl-pds">"</span></span>)
+<span class="pl-k">**</span> (<span class="pl-c1">Cachex</span>.<span class="pl-c1">ExecutionError</span>) <span class="pl-c1">Invalid</span> cache name provided, <span class="pl-c1">got:</span> <span class="pl-c1">:missing_cache</span>
+    (cachex) lib<span class="pl-k">/</span>cachex<span class="pl-k">/</span>macros<span class="pl-k">/</span>boilerplate.<span class="pl-c1">ex:</span><span class="pl-c1">77</span>: <span class="pl-c1">Cachex</span>.<span class="pl-c1">Macros</span>.<span class="pl-c1">Boilerplate</span>.raise_result<span class="pl-k">/</span><span class="pl-c1">1</span></pre></div>
+
+<p>I'd typically recommend checking the values and using the safe version which gives you a tuple, but sometimes it's easier to use the unsafe version (for example in unit tests).</p>
+
+<h2>
+<a id="contributions" class="anchor" href="#contributions" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Contributions</h2>
+
+<p>If you feel something can be improved, or have any questions about certain behaviours or pieces of implementation, please feel free to file an issue. Proposed changes should be taken to issues before any PRs to avoid wasting time on code which might not be merged upstream.</p>
+
+<p>If you <em>do</em> make changes to the codebase, please make sure you test your changes thoroughly, and include any unit tests alongside new or changed behaviours. Cachex currently uses the excellent <a href="https://github.com/parroty/excoveralls">excoveralls</a> to track code coverage.</p>
+
+<div class="highlight highlight-source-elixir"><pre>$ mix test <span class="pl-k">--</span>trace
+$ mix coveralls
+$ mix coveralls.html <span class="pl-k">&amp;&amp;</span> open cover<span class="pl-k">/</span>excoveralls.html</pre></div>
+
+      <footer class="site-footer">
+        <span class="site-footer-owner"><a href="https://github.com/zackehh/cachex">Cachex</a> is maintained by <a href="https://github.com/zackehh">zackehh</a>.</span>
+
+        <span class="site-footer-credits">This page was generated by <a href="https://pages.github.com">GitHub Pages</a> using the <a href="https://github.com/jasonlong/cayman-theme">Cayman theme</a> by <a href="https://twitter.com/jasonlong">Jason Long</a>.</span>
+      </footer>
+
+    </section>
+
+  
+  </body>
+</html>
